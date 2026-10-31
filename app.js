@@ -4,7 +4,7 @@ const CLOUD=[{"lang": "Marathi", "text": "मी तुझ्यावर प्
 'use strict';
 /* I Love You in 52 languages — made by @hack.n.code */
 const Q = new URLSearchParams(location.search);
-const NAME = ((Q.get('name') || 'my love').trim().slice(0, 22)) || 'my love';
+const NAME = (Q.get('name') || '').trim().slice(0, 22); // optional; no name = a glowing ❤️ in the heart
 const DEMO = Q.get('demo') === '1';
 const TOTAL = HEAD.length + CLOUD.length;
 const $ = s => document.querySelector(s);
@@ -20,13 +20,13 @@ const now = () => performance.now() / 1000;
 
 /* ---------- timeline (seconds after "Tap to begin") ---------- */
 const FL0 = 0.3;          // words start flowing in
-const T1 = 8.0;           // gather into the heart
+const T1 = 10.5;          // gather into the heart
 const HB = T1 + 2.6;      // heart formed
-const T2 = HB + 4.5;      // heart -> rose
+const T2 = HB + 5.3;      // heart -> rose
 const RB = T2 + 3.5;      // rose formed
-const FL = RB + 2.6;      // final line
-const PN = FL + 3.4;      // finale panel
-const DONE = PN + 2.6;
+const FL = RB + 3.0;      // final line
+const PN = FL + 4.0;      // finale panel
+const DONE = PN + 3.5;
 
 /* ---------- phrases ---------- */
 const PH = HEAD.concat(CLOUD).map(p => ({ text: p.text.replace(/\n/g, ' '), f: p.f === 'Great Vibes' ? 'Playfair Display' : p.f, dir: p.dir, lang: p.lang }));
@@ -133,7 +133,7 @@ function buildForms() {
     const cx = W / 2, cy = H * .5 - 2.5 * sy;
     L.hcx = cx; L.hcy = cy + 2 * sy; L.hs = s;
     const hp = new Path2D(); for (let a = 0; a <= 6.30; a += .02) { const p = hxy(a); a ? hp.lineTo(cx + p[0] * s, cy + p[1] * sy) : hp.moveTo(cx + p[0] * s, cy + p[1] * sy); } hp.closePath();
-    const ny = cy - 1.2 * sy, nrx = 9.5 * s, nry = 3.4 * sy; L.nameY = ny; L.nameW = nrx * 1.9;
+    const ny = cy - 1.2 * sy, nrx = NAME ? 9.5 * s : 6.6 * s, nry = NAME ? 3.4 * sy : 4.7 * sy; L.nameY = ny; L.nameW = nrx * 1.9; L.nameRX = nrx; L.nameRY = nry;
     const test = (x, y) => tmpc.isPointInPath(hp, x, y) && (((x - cx) / nrx) ** 2 + ((y - ny) / nry) ** 2 > 1);
     const inner = new Path2D(); for (let a = 0; a <= 6.30; a += .02) { const p = hxy(a); const X = cx + p[0] * s * .9, Y = cy + 1.0 * s * .9 + p[1] * s * .9 - 0.9 * s * .1; a ? inner.lineTo(X, Y) : inner.moveTo(X, Y); }
     const out = [];
@@ -362,6 +362,7 @@ function drawHeartName(t) {
   if (t < HB - .8 || t > T2 + 1) return;
   const a = Math.min(clamp((t - HB + .8) / .9), 1 - clamp((t - T2) / .7));
   const bs = 1 + .06 * beat(t);
+  if (!NAME) { drawCoreHeart(t, a, 1 + .1 * beat(t)); return; }
   let fs = Math.min(84, L.nameW * .34);
   ctx.save(); ctx.font = '400 ' + fs + 'px "Great Vibes", cursive';
   const tw = ctx.measureText(NAME).width; if (tw > L.nameW * .92) { fs *= L.nameW * .92 / tw; ctx.font = '400 ' + fs + 'px "Great Vibes", cursive'; }
@@ -369,6 +370,31 @@ function drawHeartName(t) {
   ctx.translate(L.hcx, L.nameY); ctx.scale(bs, bs);
   ctx.shadowColor = 'rgba(255,40,120,1)'; ctx.shadowBlur = 22; ctx.fillStyle = '#fff';
   ctx.fillText(NAME, 0, 4);
+  ctx.restore();
+}
+/* the big glowing ❤️ in the middle of the word-heart (drawn, so it is crisp at any size) */
+function drawCoreHeart(t, a, bs) {
+  const k = Math.min(L.nameRX / 16, L.nameRY * 2 / 30) * .86;
+  const cx = L.hcx, cy = L.nameY;
+  const hp = new Path2D();
+  for (let u = 0; u <= 6.30; u += .03) { const p = hxy(u); const X = p[0] * k, Y = (p[1] + 2.2) * k; u ? hp.lineTo(X, Y) : hp.moveTo(X, Y); }
+  hp.closePath();
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(cx, cy); ctx.scale(bs, bs);
+  // soft halo
+  const R = 19 * k;
+  const g0 = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 1.5);
+  g0.addColorStop(0, 'rgba(255,60,120,.55)'); g0.addColorStop(.55, 'rgba(255,30,90,.18)'); g0.addColorStop(1, 'rgba(255,30,90,0)');
+  ctx.fillStyle = g0; ctx.beginPath(); ctx.arc(0, 0, R * 1.5, 0, 6.2832); ctx.fill();
+  // body
+  ctx.shadowColor = 'rgba(255,40,110,1)'; ctx.shadowBlur = 34 + 16 * beat(t);
+  const g = ctx.createRadialGradient(-5 * k, -6 * k, 1, 0, 2 * k, 20 * k);
+  g.addColorStop(0, '#ff8aa8'); g.addColorStop(.35, '#ff2a55'); g.addColorStop(.8, '#d4072f'); g.addColorStop(1, '#8e0020');
+  ctx.fillStyle = g; ctx.fill(hp); ctx.fill(hp);
+  ctx.shadowBlur = 0;
+  // glossy highlight
+  ctx.globalAlpha = a * .55; ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.ellipse(-7.5 * k, -5.5 * k, 3.2 * k, 1.7 * k, -.6, 0, 6.2832); ctx.fill();
+  ctx.globalAlpha = a * .35; ctx.beginPath(); ctx.arc(-3.6 * k, -7.8 * k, .9 * k, 0, 6.2832); ctx.fill();
   ctx.restore();
 }
 function drawRoseGlow(t) {
@@ -390,16 +416,24 @@ function drawFinalLine(t) {
   const a = clamp((t - FL) / 1.1);
   const y = L.lineY;
   ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = 'rgba(12,3,10,.55)'; ctx.filter = 'blur(14px)'; ctx.fillRect(W * .06, y - 4, W * .88, L.lineH * .95); ctx.filter = 'none';
-  let fs = Math.min(50, W * .115); ctx.font = '400 ' + fs + 'px "Great Vibes", cursive';
-  const tw = ctx.measureText(NAME + ',').width; if (tw > W * .86) { fs *= W * .86 / tw; ctx.font = '400 ' + fs + 'px "Great Vibes", cursive'; }
+  ctx.fillStyle = 'rgba(12,3,10,.55)'; ctx.filter = 'blur(14px)'; ctx.fillRect(W * .04, y - 4, W * .92, L.lineH * .95); ctx.filter = 'none';
+  const first = NAME ? NAME + ',' : 'In ' + PH.length + ' languages,';
+  let fs = Math.min(NAME ? 50 : 54, W * (NAME ? .115 : .125)); ctx.font = '400 ' + fs + 'px "Great Vibes", cursive';
+  const tw = ctx.measureText(first).width; if (tw > W * .88) { fs *= W * .88 / tw; ctx.font = '400 ' + fs + 'px "Great Vibes", cursive'; }
   ctx.fillStyle = '#ff9cc0'; ctx.shadowColor = 'rgba(255,50,130,.9)'; ctx.shadowBlur = 16;
-  ctx.fillText(NAME + ',', W / 2, y + fs * .5);
+  ctx.fillText(first, W / 2, y + fs * .5);
   const a2 = clamp((t - FL - .5) / 1.0); ctx.globalAlpha = a * a2;
-  const bs = Math.min(23, W * .06);
-  ctx.font = '600 ' + bs + 'px Poppins, sans-serif'; ctx.fillStyle = '#fff'; ctx.shadowBlur = 10;
-  ctx.fillText('in ' + PH.length + ' languages,', W / 2, y + fs + bs * .5);
-  ctx.fillText('my answer is you 🌹', W / 2, y + fs + bs * 1.8);
+  ctx.fillStyle = '#fff'; ctx.shadowBlur = 10;
+  if (NAME) {
+    const bs = Math.min(23, W * .06);
+    ctx.font = '600 ' + bs + 'px Poppins, sans-serif';
+    ctx.fillText('in ' + PH.length + ' languages,', W / 2, y + fs + bs * .5);
+    ctx.fillText('my answer is you 🌹', W / 2, y + fs + bs * 1.8);
+  } else {
+    let bs = Math.min(32, W * .078); ctx.font = '700 ' + bs + 'px Poppins, sans-serif';
+    const w2 = ctx.measureText('my answer is you 🌹').width; if (w2 > W * .88) { bs *= W * .88 / w2; ctx.font = '700 ' + bs + 'px Poppins, sans-serif'; }
+    ctx.fillText('my answer is you 🌹', W / 2, y + fs + bs * .75);
+  }
   ctx.restore();
 }
 /* ---------- background ---------- */
@@ -482,16 +516,15 @@ function begin() {
 btn.addEventListener('click', begin);
 $('#replay').addEventListener('click', () => { T0 = now(); });
 $('#share').addEventListener('click', () => {
-  const url = location.origin + location.pathname + '?name=' + encodeURIComponent(NAME);
-  const msg = 'I made you a rose out of "I love you" in ' + TOTAL + ' languages… open it, ' + NAME + ' 🌹❤️\n' + url;
+  const url = location.origin + location.pathname + (NAME ? '?name=' + encodeURIComponent(NAME) : '');
+  const msg = 'I made you a rose out of "I love you" in ' + TOTAL + ' languages… open it' + (NAME ? ', ' + NAME : '') + ' 🌹❤️\n' + url;
   window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent(msg), '_blank');
 });
 /* make your own */
 const modal = $('#make'), inp = $('#petname'), out = $('#mklink');
 $('#mk').addEventListener('click', () => { modal.classList.add('on'); });
 $('#mkclose').addEventListener('click', () => modal.classList.remove('on'));
-document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => { inp.value = c.textContent; }));
-function mkUrl() { const n = (inp.value || '').trim().slice(0, 22) || 'my love'; return location.origin + location.pathname + '?name=' + encodeURIComponent(n); }
+function mkUrl() { const n = (inp.value || '').trim().slice(0, 22); return location.origin + location.pathname + (n ? '?name=' + encodeURIComponent(n) : ''); }
 $('#mkwa').addEventListener('click', () => { const u = mkUrl(); out.textContent = u; window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent('I made you a rose out of "I love you" in ' + TOTAL + ' languages 🌹❤️\n' + u), '_blank'); });
 $('#mkcopy').addEventListener('click', () => { const u = mkUrl(); out.textContent = u; const done = () => { $('#mkcopy').textContent = 'Copied ✓'; };
   const fb = () => { try { const ta = document.createElement('textarea'); ta.value = u; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); } catch (e) { } };
@@ -545,13 +578,13 @@ async function fontsReady() {
   const jobs = [];
   for (const [f, txt] of fams) jobs.push(document.fonts.load(fontFor(f, 40).replace(', "Noto Serif", "Noto Color Emoji", serif', ''), txt.replace(/\n/g, '')));
   jobs.push(document.fonts.load('italic 700 40px "Noto Serif"', "Σ' αγαπώ ʻ"), document.fonts.load('700 40px "Noto Serif"', "Σ' αγαπώ ʻ"));
-  jobs.push(document.fonts.load('400 40px "Great Vibes"', NAME + 'one meaning'), document.fonts.load('800 26px Poppins'), document.fonts.load('600 22px Poppins'), document.fonts.load('italic 400 21px Poppins'));
+  jobs.push(document.fonts.load('400 40px "Great Vibes"', NAME + 'In 52 languages,one meaning'), document.fonts.load('800 26px Poppins'), document.fonts.load('600 22px Poppins'), document.fonts.load('italic 400 21px Poppins'));
   await Promise.race([Promise.allSettled(jobs), new Promise(r => setTimeout(r, 6000))]);
 }
 let lastW = 0, lastH = 0;
 window.addEventListener('resize', () => { if (Math.abs(window.innerWidth - lastW) > 2 || Math.abs(window.innerHeight - lastH) > 60) { lastW = window.innerWidth; lastH = window.innerHeight; layout(); } });
 (async function boot() {
-  $('#who').textContent = NAME;
+  $('#who').textContent = NAME || 'you 💖';
   await fontsReady();
   lastW = window.innerWidth; lastH = window.innerHeight;
   layout();
