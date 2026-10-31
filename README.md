@@ -31,7 +31,7 @@ Day 5 of 100 · made by [@hack.n.code](https://www.instagram.com/hack.n.code/)
 
 **World:** English, French, Spanish, Japanese, Korean, Arabic, Italian, German, Portuguese, Russian, Chinese, Turkish, Greek, Hebrew, Thai, Vietnamese, Indonesian, Swahili, Persian, Dutch, Polish, Swedish, Ukrainian, Filipino, Irish, Hawaiian, Latin, Norwegian, Finnish, Czech, Hungarian, Romanian, Malay, Zulu, Icelandic, Welsh
 
-Every script renders with Google Noto fonts: Devanagari, Gujarati, Tamil, Telugu, Kannada, Malayalam, Bengali, Gurmukhi, Oriya, Sinhala, Nastaliq Urdu, Naskh Arabic, Hebrew, Thai, JP, KR and SC. The font files are subset to only the letters used, so they load fast and show no tofu boxes.
+Every script renders with Google Noto fonts: Devanagari, Gujarati, Tamil, Telugu, Kannada, Malayalam, Bengali, Gurmukhi, Odia, Sinhala, Nastaliq Urdu, Naskh Arabic, Hebrew, Thai, JP, KR and SC. The font files are subset to only the letters used, so they load fast and show no tofu boxes.
 
 ## 🔗 URL options
 
