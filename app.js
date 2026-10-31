@@ -17,17 +17,32 @@ const eBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t
 function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 const now = () => performance.now() / 1000;
 
+
 /* ---------- timeline (seconds after "Tap to begin") ---------- */
-const HSTEP = 2.0, H0 = 0.3;
-const S0 = H0 + HEAD.length * HSTEP;          // storm begins
-const WSTEP = 0.3;
-const S1 = S0 + 0.6 + CLOUD.length * WSTEP + 1.4; // "N languages, one meaning"
-const G0 = S1 + 2.6;                           // gather into heart
-const HB = G0 + 2.0;                           // heart formed
-const R0 = HB + 3.8;                           // heart -> rose
-const FL = R0 + 4.2;                           // final line
-const PN = R0 + 7.0;                           // finale panel
-const DONE = R0 + 9.5;
+const FL0 = 0.3;          // words start flowing in
+const T1 = 8.0;           // gather into the heart
+const HB = T1 + 2.6;      // heart formed
+const T2 = HB + 4.5;      // heart -> rose
+const RB = T2 + 3.5;      // rose formed
+const FL = RB + 2.6;      // final line
+const PN = FL + 3.4;      // finale panel
+const DONE = PN + 2.6;
+
+/* ---------- phrases ---------- */
+const PH = HEAD.concat(CLOUD).map(p => ({ text: p.text.replace(/\n/g, ' '), f: p.f === 'Great Vibes' ? 'Playfair Display' : p.f, dir: p.dir, lang: p.lang }));
+const SHORT = PH.map((p, i) => i).filter(i => PH[i].text.length <= 9);
+let W100 = [];
+function measureAll() { W100 = PH.map(p => { ctx.font = fontFor(p.f, 100); return ctx.measureText(p.text).width; }); }
+const wOf = (i, s) => W100[i] * s / 100;
+function fontFor(f, size) { return (f === 'Great Vibes' ? '400 ' : (f === 'Playfair Display' ? 'italic 700 ' : '700 ')) + size.toFixed(2) + 'px "' + f + '", "Noto Serif", "Noto Color Emoji", serif'; }
+const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const REDS = ['#ff2d55', '#ff4d6d', '#ff1f4b', '#ff6b8b', '#e8173f', '#ff86a2', '#ff3b66'].map(hex);
+const DEEP = ['#d90f36', '#c8102e', '#ff2d55', '#e0103a', '#b8001f', '#ff3355'].map(hex);
+const LIGHT = ['#ffd6e4', '#ffe6ee', '#ffc2d8', '#ffb3cf'].map(hex);
+const PINKS = ['#ff9cc0', '#ffb3cf', '#ff7aa8', '#ffc2d8', '#ff8fb8'].map(hex);
+const GOLD = ['#ffd27a', '#ffc04d', '#ffe0a0'].map(hex);
+const GREENS = ['#2ecc71', '#3fbf5f', '#5fd47a', '#1fa855', '#7be38f', '#27b35e'].map(hex);
+const pickC = (arr, r) => arr[Math.floor(r() * arr.length)];
 
 /* ---------- layout ---------- */
 let L = {};
@@ -36,17 +51,357 @@ function layout() {
   W = window.innerWidth; H = window.innerHeight;
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
   cv.style.width = W + 'px'; cv.style.height = H + 'px';
-  const panelH = Math.min(220, Math.max(186, H * 0.27));
-  const lineH = Math.max(108, H * 0.15);
-  const top = Math.max(56, H * 0.075);
-  const avail = H - panelH - lineH - top;
-  let hw = Math.min(W * 0.86, avail * 1.0);      // heart width
-  L = { panelH, lineH, top, hw, hcx: W / 2, hcy: top + avail * 0.5, s: hw / 34 };
-  L.lineY = top + avail + 8;
-  buildBG(); buildStars(); buildHeart(); buildCloud();
-  headPts = HEAD.map((h, i) => textPoints(h, i));
+  txc.width = cv.width; txc.height = cv.height;
+  glc.width = Math.round(cv.width / 3); glc.height = Math.round(cv.height / 3);
+  const COVER = Q.get('cover') === '1';
+  const panelH = COVER ? 0 : Math.min(220, Math.max(186, H * 0.27));
+  const lineH = COVER ? 70 : Math.max(104, H * 0.14);
+  L = { panelH, lineH, k: Math.min(W / 432, H / 768) * 1.0 };
+  L.lineY = H - panelH - lineH + 4;
+  buildBG(); buildStars(); measureAll(); buildForms();
 }
 
+/* ---------- packing helpers ---------- */
+function packRegion(test, cx, cy, ext, ang, o, r, out) {
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const toW = (u, v) => [cx + u * ca - v * sa, cy + u * sa + v * ca];
+  let v = -ext;
+  while (v < ext) {
+    const s = o.smin + (o.smax - o.smin) * Math.pow(r(), 1.3);
+    const rowH = s * (o.lh || 1.12);
+    const vc = v + rowH / 2;
+    const spans = []; let st = null;
+    for (let u = -ext; u <= ext; u += 1.5) {
+      const p0 = toW(u, vc - s * .32), p1 = toW(u, vc), p2 = toW(u, vc + s * .32);
+      const ins = test(p0[0], p0[1]) && test(p1[0], p1[1]) && test(p2[0], p2[1]);
+      if (ins && st === null) st = u; if (!ins && st !== null) { spans.push([st, u]); st = null; }
+    }
+    if (st !== null) spans.push([st, ext]);
+    for (const sp of spans) {
+      let cur = sp[0] + 1, gap = s * .32; const row = [];
+      let guard = 0;
+      while (guard++ < 60) {
+        const rem = sp[1] - 1 - cur; if (rem < s * 1.2) break;
+        const pool = o.pool || null;
+        let cand = [];
+        for (let k = 0; k < 14; k++) { const i = pool ? pool[Math.floor(r() * pool.length)] : Math.floor(r() * PH.length); if (wOf(i, s) <= rem) { cand.push(i); if (cand.length >= 3) break; } }
+        if (!cand.length) { for (const i of SHORT) if (wOf(i, s) <= rem) cand.push(i); if (!cand.length) break; }
+        cand.sort((a, b) => wOf(b, s) - wOf(a, s));
+        const i = cand[0]; const w = wOf(i, s);
+        row.push({ i, u: cur + w / 2, w }); cur += w + gap;
+      }
+      if (!row.length) continue;
+      const left = Math.max(0, (sp[1] - 1) - (cur - gap));
+      const add = row.length > 1 ? Math.min(left / (row.length - 1), s * 1.2) : 0;
+      const shift = row.length > 1 ? 0 : left / 2;
+      row.forEach((q, k) => { const p = toW(q.u + k * add + shift, vc); out.push({ i: q.i, x: p[0], y: p[1], s, r: ang, c: o.col(r, p[0], p[1]), a: o.alpha || 1 }); });
+    }
+    v += rowH;
+  }
+}
+function placeAlong(pts, o, r, out) {
+  // pts: polyline; words follow it, rotated to the tangent
+  const cum = [0]; for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+  const total = cum[cum.length - 1];
+  const at = d => { let k = 1; while (k < cum.length - 1 && cum[k] < d) k++; const f = (d - cum[k - 1]) / ((cum[k] - cum[k - 1]) || 1); return [pts[k - 1][0] + (pts[k][0] - pts[k - 1][0]) * f, pts[k - 1][1] + (pts[k][1] - pts[k - 1][1]) * f]; };
+  let d = o.start || 0; let guard = 0;
+  while (d < total - 6 && guard++ < 200) {
+    const s = o.smin + (o.smax - o.smin) * r();
+    const pool = o.pool || SHORT;
+    let i = pool[Math.floor(r() * pool.length)], w = wOf(i, s);
+    if (d + w > total) { let best = -1; for (const j of pool) if (wOf(j, s) <= total - d && (best < 0 || wOf(j, s) > wOf(best, s))) best = j; if (best < 0) break; i = best; w = wOf(i, s); }
+    const a = at(d), b = at(d + w), m = at(d + w / 2);
+    let ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    if (o.upright && Math.cos(ang) < -0.15) ang += Math.PI;
+    const nx = -Math.sin(ang), ny = Math.cos(ang), off = o.off || 0;
+    if (!o.keep || o.keep(m[0], m[1])) out.push({ i, x: m[0] + nx * off, y: m[1] + ny * off, s, r: ang, c: o.col(r, m[0], m[1]), a: o.alpha || 1 });
+    d += w + s * (o.gap || .35);
+  }
+}
+function bez(p0, p1, p2, p3, n) { const out = []; for (let k = 0; k <= n; k++) { const u = k / n, m = 1 - u; out.push([m * m * m * p0[0] + 3 * m * m * u * p1[0] + 3 * m * u * u * p2[0] + u * u * u * p3[0], m * m * m * p0[1] + 3 * m * m * u * p1[1] + 3 * m * u * u * p2[1] + u * u * u * p3[1]]); } return out; }
+function hxy(a) { return [16 * Math.pow(Math.sin(a), 3), -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a))]; }
+const tmpc = document.createElement('canvas').getContext('2d');
+
+/* ---------- formations ---------- */
+let HEART = [], ROSE = [], FLOW = [], TOK = [];
+function buildForms() {
+  const k = L.k;
+  /* heart */
+  {
+    const r = rng(1234);
+    const s = W * .925 / 32, sy = Math.min(s * 1.26, H * .72 / 29.5);
+    const cx = W / 2, cy = H * .5 - 2.5 * sy;
+    L.hcx = cx; L.hcy = cy + 2 * sy; L.hs = s;
+    const hp = new Path2D(); for (let a = 0; a <= 6.30; a += .02) { const p = hxy(a); a ? hp.lineTo(cx + p[0] * s, cy + p[1] * sy) : hp.moveTo(cx + p[0] * s, cy + p[1] * sy); } hp.closePath();
+    const ny = cy - 1.2 * sy, nrx = 9.5 * s, nry = 3.4 * sy; L.nameY = ny; L.nameW = nrx * 1.9;
+    const test = (x, y) => tmpc.isPointInPath(hp, x, y) && (((x - cx) / nrx) ** 2 + ((y - ny) / nry) ** 2 > 1);
+    const inner = new Path2D(); for (let a = 0; a <= 6.30; a += .02) { const p = hxy(a); const X = cx + p[0] * s * .9, Y = cy + 1.0 * s * .9 + p[1] * s * .9 - 0.9 * s * .1; a ? inner.lineTo(X, Y) : inner.moveTo(X, Y); }
+    const out = [];
+    packRegion(test, cx, cy + 2 * sy, 19 * sy, 0, { smin: 11 * k, smax: 20 * k, lh: 1.08, col: (r, x, y) => { const d = Math.hypot((x - cx) / (16 * s), (y - cy) / (14 * sy)); return r() < .1 ? pickC(GOLD, r) : d < .5 ? pickC(REDS, r) : pickC(r() < .5 ? REDS : PINKS, r); } }, r, out);
+    // crisp outline of words around the heart
+    const op = []; for (let a = 0; a <= 6.2832; a += .01) { const p = hxy(a + Math.PI); op.push([cx + p[0] * s * 1.035, cy + p[1] * sy * 1.035 + 0.1 * sy]); }
+    placeAlong(op, { smin: 11 * k, smax: 13 * k, col: (r) => pickC(PINKS.concat(GOLD), r), alpha: 1, gap: .3 }, r, out);
+    HEART = out;
+  }
+  /* rose */
+  {
+    const r = rng(777);
+    const top = Math.max(50, H * .06), bottom = L.lineY - 8;
+    const avail = bottom - top;
+    const R = Math.min(W * .42, avail * .335);
+    const cx = W / 2, cy = top + R * 1.12;
+    L.rcx = cx; L.rcy = cy; L.rR = R;
+    const out = [];
+    const sz = (a, b) => ({ smin: a * k, smax: b * k });
+    // outer petals (ring 1 behind, ring 2 front)
+    const petal = (len, wid, ang) => {
+      const p = new Path2D(); const ca = Math.cos(ang), sa = Math.sin(ang);
+      const T = (x, y) => [cx + x * ca - y * sa, cy + x * sa + y * ca];
+      const pts = [];
+      bez([0, 0], [wid * .9, -len * .12], [wid * 1.1, -len * .8], [wid * .22, -len * .99], 26).forEach(q => pts.push(q));
+      bez([wid * .22, -len * .99], [wid * .08, -len * 1.04], [-wid * .08, -len * 1.04], [-wid * .22, -len * .99], 8).forEach(q => pts.push(q));
+      bez([-wid * .22, -len * .99], [-wid * 1.1, -len * .8], [-wid * .9, -len * .12], [0, 0], 26).forEach(q => pts.push(q));
+      const wp = pts.map(q => T(q[0], q[1])); wp.forEach((q, i) => i ? p.lineTo(q[0], q[1]) : p.moveTo(q[0], q[1])); p.closePath();
+      return { p, wp, ang };
+    };
+    const rIn = .66 * R;
+    const ring1 = [], ring2 = [];
+    for (let j = 0; j < 5; j++) ring1.push(petal(R * 1.0, R * .6, j * 1.2566 + .2));
+    for (let j = 0; j < 5; j++) ring2.push(petal(R * .9, R * .55, j * 1.2566 + .2 + .628));
+    const inC = (x, y, rr) => Math.hypot(x - cx, (y - cy)) < rr;
+    // sepals peeking between outer petals
+    for (let j = 0; j < 5; j++) {
+      const sp = petal(R * 1.16, R * .2, j * 1.2566 + .2 + .628 + .3);
+      placeAlong(sp.wp, { smin: 8.5 * k, smax: 10 * k, col: r => pickC(GREENS, r), keep: (x, y) => !inC(x, y, R * .98) && !ring1.some(q => tmpc.isPointInPath(q.p, x, y)) && !ring2.some(q => tmpc.isPointInPath(q.p, x, y)), gap: .3 }, r, out);
+    }
+    ring1.forEach(q => {
+      const test = (x, y) => tmpc.isPointInPath(q.p, x, y) && !inC(x, y, rIn) && !ring2.some(z => tmpc.isPointInPath(z.p, x, y));
+      packRegion(test, cx + Math.sin(q.ang) * R * .6, cy - Math.cos(q.ang) * R * .6, R * .7, q.ang, { ...sz(7, 10), lh: 1.08, col: (r, x, y) => pickC(DEEP, r), alpha: .62 }, r, out);
+      placeAlong(q.wp, { ...sz(9.5, 11.5), col: r => pickC(LIGHT, r), keep: (x, y) => !inC(x, y, rIn) && !ring2.some(z => tmpc.isPointInPath(z.p, x, y)), gap: .2 }, r, out);
+    });
+    ring2.forEach(q => {
+      const test = (x, y) => tmpc.isPointInPath(q.p, x, y) && !inC(x, y, rIn);
+      packRegion(test, cx + Math.sin(q.ang) * R * .55, cy - Math.cos(q.ang) * R * .55, R * .6, q.ang, { ...sz(7, 10), lh: 1.08, col: (r) => pickC(REDS, r), alpha: .78 }, r, out);
+      placeAlong(q.wp, { ...sz(9.5, 12), col: r => pickC(r() < .8 ? LIGHT : GOLD, r), keep: (x, y) => !inC(x, y, rIn), gap: .2 }, r, out);
+    });
+    // spiral of cupped crescents: words along arcs (bigger towards the centre)
+    const NC = 8;
+    for (let j = 0; j < NC; j++) {
+      const f = j / (NC - 1);
+      const rr = rIn * (1 - .8 * f);
+      const a0 = j * 2.399 + .4, span = 2.6 + 1.0 * (1 - f);
+      for (const [mul, off, bright] of [[1, 0, 1], [.84, .18, 0]]) {
+        if (!bright && rr < R * .22) continue;
+        const pts = []; const cxo = cx - Math.cos(a0) * rr * off * .5, cyo = cy - Math.sin(a0) * rr * off * .5;
+        const sp = bright ? span : span * .8;
+        const n = 40; for (let q = 0; q <= n; q++) { const a = a0 - sp / 2 + sp * q / n; pts.push([cxo + Math.cos(a) * rr * mul, cyo + Math.sin(a) * rr * mul]); }
+        const sMin = (bright ? 9.5 + 5 * f : 8 + 3 * f) * k, sMax = (bright ? 11 + 7 * f : 9 + 4 * f) * k;
+        placeAlong(pts, { smin: sMin, smax: sMax, col: (r) => bright ? pickC(f > .5 ? REDS : PINKS.concat(REDS), r) : pickC(DEEP, r), alpha: bright ? 1 : .7, gap: .2, pool: f > .45 ? SHORT : null }, r, out);
+      }
+    }
+    // centre word
+    out.push({ i: 0, x: cx, y: cy, s: 15 * k, r: -.5, c: hex('#ffd27a'), a: 1 });
+    // stem
+    const s0 = [cx, cy + R * .92], s3 = [cx - W * .07, bottom + 40];
+    const sp1 = [cx + W * .11, s0[1] + (s3[1] - s0[1]) * .35], sp2 = [s3[0] - W * .13, s0[1] + (s3[1] - s0[1]) * .7];
+    const stem = bez(s0, sp1, sp2, s3, 60);
+    L.stem = stem;
+    for (const off of [-6.5 * k, 0, 6.5 * k]) placeAlong(stem, { smin: 8.5 * k, smax: 10 * k, off, col: r => pickC(GREENS, r), gap: .3, upright: true, keep: (x, y) => y > cy + R * .98 }, r, out);
+    // leaves
+    const leaf = (u, ang, len, flip) => {
+      const base = stem[Math.round(u * 60)];
+      const ca = Math.cos(ang), sa = Math.sin(ang), T = (x, y) => [base[0] + x * ca - y * sa, base[1] + x * sa + y * ca];
+      const up = bez([0, 0], [len * .3, -len * .42], [len * .8, -len * .32], [len, 0], 24).map(q => T(q[0], q[1]));
+      const dn = bez([len, 0], [len * .8, len * .32], [len * .3, len * .38], [0, 0], 24).map(q => T(q[0], q[1]));
+      const p = new Path2D(); up.concat(dn).forEach((q, i) => i ? p.lineTo(q[0], q[1]) : p.moveTo(q[0], q[1])); p.closePath();
+      packRegion((x, y) => tmpc.isPointInPath(p, x, y), T(len * .5, 0)[0], T(len * .5, 0)[1], len * .55, ang, { smin: 6.5 * k, smax: 8.5 * k, lh: 1.05, col: r => pickC(GREENS, r), alpha: .7 }, r, out);
+      placeAlong(up.concat(dn), { smin: 8.5 * k, smax: 10 * k, col: r => hex(r() < .5 ? '#b8ffc6' : '#8cf0a0'), gap: .2 }, r, out);
+      placeAlong(bez(T(len*.04,0), T(len*.35,-len*.03), T(len*.65,-len*.02), T(len*.92,0), 20), { smin: 7.5 * k, smax: 8.5 * k, col: r => hex('#c8ffd2'), gap: .25, alpha: .9 }, r, out);
+    };
+    leaf(.3, -2.55, W * .26, 1);
+    leaf(.52, -.45, W * .28, -1);
+    ROSE = out;
+  }
+  /* flow-in scatter: every language once (+ repeats), big and readable */
+  {
+    const r = rng(55); const out = []; const rects = [];
+    const order = PH.map((p, i) => i); for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    const list = order.concat(SHORT.slice(0, 18));
+    const y0 = Math.max(150, H * .2), y1 = H - 40;
+    for (const i of list) {
+      let s = (16 + r() * 14) * k, w = wOf(i, s); if (w > W * .86) { s *= W * .86 / w; w = W * .86; }
+      const h = s * 1.4; let ok = false, x, y;
+      for (let tries = 0; tries < 160 && !ok; tries++) {
+        x = 8 + w / 2 + r() * (W - 16 - w); y = y0 + h / 2 + r() * (y1 - y0 - h);
+        ok = !rects.some(q => Math.abs(q[0] - x) < (q[2] + w) / 2 + 6 && Math.abs(q[1] - y) < (q[3] + h) / 2 + 2);
+      }
+      if (!ok) continue; rects.push([x, y, w, h]);
+      out.push({ i, x, y, s, r: (r() - .5) * .16, c: pickC(r() < .15 ? GOLD : r() < .5 ? PINKS : REDS, r), a: 1 });
+    }
+    FLOW = out;
+  }
+  buildTokens();
+}
+/* tokens carry a word through flow -> heart -> rose */
+function assign(prevTxt, slots, r) {
+  // returns slot index for each token (or -1); prefers same phrase
+  const byPh = new Map(); slots.forEach((s, j) => { if (!byPh.has(s.i)) byPh.set(s.i, []); byPh.get(s.i).push(j); });
+  const used = new Uint8Array(slots.length), res = new Array(prevTxt.length).fill(-1);
+  prevTxt.forEach((ph, t) => { const l = byPh.get(ph); while (l && l.length) { const j = l.pop(); if (!used[j]) { used[j] = 1; res[t] = j; break; } } });
+  const free = []; used.forEach((u, j) => { if (!u) free.push(j); });
+  for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [free[i], free[j]] = [free[j], free[i]]; }
+  prevTxt.forEach((ph, t) => { if (res[t] < 0 && free.length) res[t] = free.pop(); });
+  return { res, rest: free };
+}
+function offscreen(r) { const a = r() * 6.2832, d = Math.hypot(W, H) * .62; return [W / 2 + Math.cos(a) * d, H / 2 + Math.sin(a) * d]; }
+function buildTokens() {
+  const r = rng(99);
+  const nT = Math.max(FLOW.length, HEART.length, ROSE.length);
+  TOK = [];
+  for (let t = 0; t < nT; t++) TOK.push({ st: [null, null, null], d: [0, 0, 0], cu: (r() - .5) * 160, ph: r() * 6.28 });
+  // stage 0: flow (first FLOW.length tokens), others hidden offscreen
+  TOK.forEach((tk, t) => {
+    if (t < FLOW.length) { const f = FLOW[t]; tk.st[0] = { ...f }; tk.arr = FL0 + (t / FLOW.length) * 5.2 + r() * .25; tk.from = offscreen(r); }
+    else { const o = offscreen(r); tk.st[0] = { i: PH.length > 0 ? Math.floor(r() * PH.length) : 0, x: o[0], y: o[1], s: 12 * L.k, r: 0, c: pickC(REDS, r), a: 0 }; tk.arr = 0; tk.from = o; }
+  });
+  // stage 1: heart
+  let A = assign(TOK.map(tk => tk.st[0].a > 0 ? tk.st[0].i : -1), HEART, r);
+  TOK.forEach((tk, t) => { const j = A.res[t]; if (j >= 0) tk.st[1] = { ...HEART[j] }; });
+  TOK.forEach(tk => { if (!tk.st[1]) { const j = Math.floor(r() * HEART.length), h = HEART[j]; tk.st[1] = { ...h, a: 0, s: h.s * .6 }; } tk.d[1] = r() * 1.1; });
+  // stage 2: rose
+  A = assign(TOK.map(tk => tk.st[1].a > 0 ? tk.st[1].i : -1), ROSE, r);
+  TOK.forEach((tk, t) => { const j = A.res[t]; if (j >= 0) tk.st[2] = { ...ROSE[j] }; });
+  TOK.forEach(tk => { if (!tk.st[2]) { const o = tk.st[1]; tk.st[2] = { ...o, x: L.rcx + (o.x - L.rcx) * 2.2, y: L.rcy + (o.y - L.rcy) * 2.2, a: 0 }; }
+    const d = Math.hypot(tk.st[2].x - L.rcx, tk.st[2].y - L.rcy) / (L.rR * 1.6); tk.d[2] = clamp(d) * .9 + r() * .5; });
+  // falling-petal words
+  FALL = []; for (let j = 0; j < 9; j++) FALL.push({ i: SHORT[Math.floor(r() * SHORT.length)], x: r(), o: r() * 6, v: 38 + r() * 28, sw: 14 + r() * 22, f: .5 + r() * .8, c: pickC(REDS.concat(PINKS), r), s: (11 + r() * 5) * L.k });
+}
+let FALL = [];
+const lerp = (a, b, u) => a + (b - a) * u;
+function lerpAng(a, b, u) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * u; }
+function beat(t) { const p = (t % 1.05) / 1.05; return Math.exp(-Math.pow((p - .08) / .05, 2)) + .6 * Math.exp(-Math.pow((p - .3) / .06, 2)); }
+function flowState(tk, t) {
+  const s = tk.st[0]; if (s.a <= 0) return s;
+  const u = eOut(clamp((t - tk.arr) / 1.8));
+  const bob = Math.sin(t * .9 + tk.ph) * 5, dr = Math.cos(t * .6 + tk.ph) * 4;
+  return { i: s.i, x: lerp(tk.from[0], s.x, u) + dr * u, y: lerp(tk.from[1], s.y, u) + bob * u, s: s.s * (.6 + .4 * u), r: lerp(s.r + (tk.cu > 0 ? .6 : -.6), s.r, u), c: s.c, a: s.a * clamp((t - tk.arr) / .7) };
+}
+function mix(A, B, u, cu) {
+  const e = ease(u), dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, bow = Math.sin(Math.PI * e) * cu * Math.min(1, len / 260);
+  return { iA: A.i, iB: B.i, x: A.x + dx * e - dy / len * bow, y: A.y + dy * e + dx / len * bow, s: lerp(A.s, B.s, e), r: lerpAng(A.r, B.r, e), c: [lerp(A.c[0], B.c[0], e), lerp(A.c[1], B.c[1], e), lerp(A.c[2], B.c[2], e)], a: lerp(A.a, B.a, e), u: e };
+}
+function tokState(tk, t) {
+  if (t < T1 + tk.d[1]) { const s = flowState(tk, t); return { iA: s.i, iB: s.i, x: s.x, y: s.y, s: s.s, r: s.r, c: s.c, a: s.a, u: 0 }; }
+  if (t < T2 + tk.d[2]) {
+    const u = clamp((t - T1 - tk.d[1]) / 1.5);
+    const S = mix(flowState(tk, T1 + tk.d[1]), tk.st[1], u, tk.cu);
+    if (t > HB - .3) { const b = 1 + .05 * beat(t) * (1 - clamp((t - T2) / .5)); S.x = L.hcx + (S.x - L.hcx) * b; S.y = L.hcy + (S.y - L.hcy) * b; S.s *= b; }
+    return S;
+  }
+  const u = clamp((t - T2 - tk.d[2]) / 1.9);
+  return mix(tk.st[1], tk.st[2], u, tk.cu * 1.4);
+}
+const txc = document.createElement('canvas'), tx = txc.getContext('2d');
+const glc = document.createElement('canvas'), gl = glc.getContext('2d');
+function drawWords(t) {
+  tx.setTransform(1, 0, 0, 1, 0, 0); tx.clearRect(0, 0, txc.width, txc.height);
+  tx.setTransform(DPR, 0, 0, DPR, 0, 0); tx.textAlign = 'center'; tx.textBaseline = 'middle';
+  const shimmerX = ((t - RB) * .35 % 1.6 - .3) * (W + 400) - 200;
+  for (let n = 0; n < TOK.length; n++) {
+    const tk = TOK[n], S = tokState(tk, t);
+    if (S.a <= .01) continue;
+    let a = S.a, c = S.c;
+    if (t > RB - .5) { // rose shimmer + breathing glow
+      const sh = Math.exp(-Math.pow((S.x + S.y * .5 - shimmerX) / 70, 2));
+      c = [Math.min(255, c[0] + 60 * sh), Math.min(255, c[1] + 90 * sh), Math.min(255, c[2] + 90 * sh)];
+      a *= .9 + .1 * Math.sin(t * 2 + tk.ph);
+    }
+    const col = 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')';
+    tx.save(); tx.translate(S.x, S.y); tx.rotate(S.r);
+    const swap = S.iA !== S.iB;
+    const k1 = swap ? clamp((S.u - .35) / .3) : 1;
+    if (swap && k1 < 1) { const p = PH[S.iA]; tx.font = fontFor(p.f, S.s); tx.direction = p.dir ? 'rtl' : 'ltr'; tx.globalAlpha = a * (1 - k1); tx.fillStyle = col; tx.fillText(p.text, 0, 0); }
+    if (k1 > 0) { const p = PH[S.iB]; tx.font = fontFor(p.f, S.s); tx.direction = p.dir ? 'rtl' : 'ltr'; tx.globalAlpha = a * k1; tx.fillStyle = col; tx.fillText(p.text, 0, 0); }
+    tx.restore();
+  }
+  // falling petals made of words
+  if (t > RB + .8) {
+    const a0 = clamp((t - RB - .8) / 1.2);
+    for (const f of FALL) {
+      const life = (H + 80) / f.v, tt = t - RB - .8 + f.o, k = (tt % life) / life;
+      const y = L.rcy + L.rR * .3 + k * (H + 80) - 40, x = f.x * W + Math.sin(t * f.f + f.o) * f.sw;
+      if (y < L.rcy + L.rR * .2) continue;
+      const p = PH[f.i]; tx.save(); tx.translate(x, y); tx.rotate(Math.sin(t * f.f * 1.3 + f.o) * .7); tx.font = fontFor(p.f, f.s); tx.direction = p.dir ? 'rtl' : 'ltr';
+      tx.globalAlpha = a0 * .85 * (1 - k * .5); tx.fillStyle = 'rgb(' + f.c.join(',') + ')'; tx.fillText(p.text, 0, 0); tx.restore();
+    }
+  }
+  // glow pass (cheap: blurred third-size copy)
+  gl.setTransform(1, 0, 0, 1, 0, 0); gl.clearRect(0, 0, glc.width, glc.height);
+  gl.filter = 'blur(' + (2.2 * DPR / 2.5).toFixed(2) + 'px)'; gl.drawImage(txc, 0, 0, glc.width, glc.height); gl.filter = 'none';
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'lighter';
+  const ga = t < T1 ? .55 : t < T2 ? .75 + .25 * beat(t) : .8;
+  ctx.globalAlpha = ga; ctx.drawImage(glc, 0, 0, cv.width, cv.height);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(txc, 0, 0);
+  ctx.restore();
+}
+function drawCaption(t) {
+  if (t < FL0 + .4 || t > T1 + .8) return;
+  const a = Math.min(clamp((t - FL0 - .4) / .9), 1 - clamp((t - T1) / .8));
+  const y = Math.max(92, H * .115);
+  ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '400 ' + Math.min(64, W * .15).toFixed(1) + 'px "Great Vibes", cursive'; ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(255,50,130,1)'; ctx.shadowBlur = 20;
+  ctx.fillText('I love you', W / 2, y - 14);
+  ctx.font = '800 22px Poppins, sans-serif'; ctx.fillStyle = '#ffc2d8'; ctx.shadowBlur = 10;
+  const n = Math.min(PH.length, Math.max(1, Math.round(PH.length * clamp((t - FL0) / 5.6))));
+  ctx.fillText('in ' + n + ' languages', W / 2, y + 30);
+  ctx.restore();
+}
+function drawHeartName(t) {
+  if (t < HB - .8 || t > T2 + 1) return;
+  const a = Math.min(clamp((t - HB + .8) / .9), 1 - clamp((t - T2) / .7));
+  const bs = 1 + .06 * beat(t);
+  let fs = Math.min(84, L.nameW * .34);
+  ctx.save(); ctx.font = '400 ' + fs + 'px "Great Vibes", cursive';
+  const tw = ctx.measureText(NAME).width; if (tw > L.nameW * .92) { fs *= L.nameW * .92 / tw; ctx.font = '400 ' + fs + 'px "Great Vibes", cursive'; }
+  ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.translate(L.hcx, L.nameY); ctx.scale(bs, bs);
+  ctx.shadowColor = 'rgba(255,40,120,1)'; ctx.shadowBlur = 22; ctx.fillStyle = '#fff';
+  ctx.fillText(NAME, 0, 4);
+  ctx.restore();
+}
+function drawRoseGlow(t) {
+  if (t < T2 + 1) return;
+  const a = clamp((t - T2 - 1) / 2);
+  const g = ctx.createRadialGradient(L.rcx, L.rcy, 0, L.rcx, L.rcy, L.rR * 1.7);
+  g.addColorStop(0, 'rgba(255,40,100,' + (.28 * a).toFixed(3) + ')'); g.addColorStop(1, 'rgba(255,40,100,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function drawHeartGlow(t) {
+  if (t < T1 + 1 || t > T2 + 1.5) return;
+  const a = Math.min(clamp((t - T1 - 1) / 1.5), 1 - clamp((t - T2) / 1.5));
+  const g = ctx.createRadialGradient(L.hcx, L.hcy, 0, L.hcx, L.hcy, L.hs * 18);
+  g.addColorStop(0, 'rgba(255,40,110,' + (.3 * a * (1 + .4 * beat(t))).toFixed(3) + ')'); g.addColorStop(1, 'rgba(255,40,110,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function drawFinalLine(t) {
+  if (t < FL) return;
+  const a = clamp((t - FL) / 1.1);
+  const y = L.lineY;
+  ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(12,3,10,.55)'; ctx.filter = 'blur(14px)'; ctx.fillRect(W * .06, y - 4, W * .88, L.lineH * .95); ctx.filter = 'none';
+  let fs = Math.min(50, W * .115); ctx.font = '400 ' + fs + 'px "Great Vibes", cursive';
+  const tw = ctx.measureText(NAME + ',').width; if (tw > W * .86) { fs *= W * .86 / tw; ctx.font = '400 ' + fs + 'px "Great Vibes", cursive'; }
+  ctx.fillStyle = '#ff9cc0'; ctx.shadowColor = 'rgba(255,50,130,.9)'; ctx.shadowBlur = 16;
+  ctx.fillText(NAME + ',', W / 2, y + fs * .5);
+  const a2 = clamp((t - FL - .5) / 1.0); ctx.globalAlpha = a * a2;
+  const bs = Math.min(23, W * .06);
+  ctx.font = '600 ' + bs + 'px Poppins, sans-serif'; ctx.fillStyle = '#fff'; ctx.shadowBlur = 10;
+  ctx.fillText('in ' + PH.length + ' languages,', W / 2, y + fs + bs * .5);
+  ctx.fillText('my answer is you 🌹', W / 2, y + fs + bs * 1.8);
+  ctx.restore();
+}
 /* ---------- background ---------- */
 const bg = document.createElement('canvas');
 function buildBG() {
@@ -86,448 +441,6 @@ function heartPath(c, x, y, s) { // small heart centred at x,y size s
   c.bezierCurveTo(x + s * .45, y - s * .9, x + s * .9, y - s * .25, x, y + s * .35); c.closePath();
 }
 
-/* ---------- text helpers ---------- */
-function fontFor(f, size) { return (f === 'Great Vibes' ? '400 ' : (f === 'Playfair Display' ? 'italic 700 ' : '700 ')) + size + 'px "' + f + '", "Noto Serif", "Noto Color Emoji", serif'; }
-function headSize(h) {
-  const lines = h.text.split('\n');
-  const short = h.text.replace(/\n/g, '').length <= 5;
-  const max = Math.min(W * (h.f === 'Great Vibes' ? .27 : short ? .25 : .2), h.f === 'Great Vibes' ? 132 : short ? 124 : 104);
-  let size = max;
-  ctx.font = fontFor(h.f, 100);
-  let wmax = 0; for (const l of lines) wmax = Math.max(wmax, ctx.measureText(l).width);
-  size = Math.min(max, 100 * (W * .86) / wmax);
-  return { lines, size, lh: size * (h.f === 'Noto Nastaliq Urdu' ? 1.9 : 1.32) };
-}
-const headCY = () => H * .4;
-let headPts = [];
-function textPoints(h, idx) {
-  const o = document.createElement('canvas'); o.width = Math.ceil(W); o.height = Math.ceil(H);
-  const c = o.getContext('2d'); const m = headSize(h);
-  c.font = fontFor(h.f, m.size); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#fff';
-  if (h.dir) c.direction = 'rtl';
-  const y0 = headCY() - (m.lines.length - 1) * m.lh / 2;
-  m.lines.forEach((l, i) => c.fillText(l, W / 2, y0 + i * m.lh));
-  const d = c.getImageData(0, 0, o.width, o.height).data, pts = [];
-  const step = 2;
-  for (let y = 0; y < o.height; y += step) for (let x = 0; x < o.width; x += step) if (d[(y * o.width + x) * 4 + 3] > 140) pts.push([x, y]);
-  const r = rng(100 + idx);
-  for (let i = pts.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [pts[i], pts[j]] = [pts[j], pts[i]]; }
-  return pts;
-}
-
-/* ---------- particles ---------- */
-const N = 2400;
-const P = { sx: new Float32Array(N), sy: new Float32Array(N), tx: new Float32Array(N), ty: new Float32Array(N), t0: new Float32Array(N), d: new Float32Array(N), du: new Float32Array(N), cu: new Float32Array(N), ph: new Float32Array(N), sz: new Float32Array(N), col: new Uint8Array(N) };
-const PCOL = ['255,77,141', '255,140,180', '255,210,225', '255,180,90', '230,120,255', '255,255,255'];
-(function initP() { const r = rng(3); for (let i = 0; i < N; i++) { P.sx[i] = P.tx[i] = r() * 432; P.sy[i] = P.ty[i] = r() * 768; P.t0[i] = -99; P.du[i] = 1; P.ph[i] = r() * 6.28; P.sz[i] = .8 + r() * 1.5; P.col[i] = Math.floor(r() * PCOL.length); P.cu[i] = (r() - .5) * 120; } })();
-function pos(i, t) {
-  const u = clamp((t - P.t0[i] - P.d[i]) / P.du[i]), e = ease(u);
-  const dx = P.tx[i] - P.sx[i], dy = P.ty[i] - P.sy[i], len = Math.hypot(dx, dy) || 1;
-  const bow = Math.sin(Math.PI * u) * P.cu[i] * Math.min(1, len / 300);
-  return [P.sx[i] + dx * e - dy / len * bow, P.sy[i] + dy * e + dx / len * bow, u];
-}
-function retarget(t, fn, spread, dur, cur) {
-  const r = rng(Math.floor(t * 1000) + 11);
-  for (let i = 0; i < N; i++) {
-    const p = pos(i, t); P.sx[i] = p[0]; P.sy[i] = p[1];
-    const q = fn(i, r); P.tx[i] = q[0]; P.ty[i] = q[1];
-    P.t0[i] = t; P.d[i] = r() * spread; P.du[i] = dur * (.8 + r() * .4); P.cu[i] = (r() - .5) * (cur || 120);
-  }
-}
-/* deterministic segment schedule: each segment = [startTime, fn, spread, dur, curve] */
-let segs = [], segDone = 0;
-function scatterPt(i, r) { return [r() * W, r() * H]; }
-function buildSegs() {
-  segs = []; segDone = 0;
-  segs.push([0, (i, r) => { const a = r() * 6.28, rr = 40 + r() * W * .5; return [W / 2 + Math.cos(a) * rr, headCY() + Math.sin(a) * rr * .8]; }, .2, 1.0, 60]);
-  HEAD.forEach((h, k) => {
-    const pts = headPts[k];
-    segs.push([H0 + k * HSTEP, (i, r) => { const p = pts[i % pts.length]; return [p[0] + (r() - .5) * 1.2, p[1] + (r() - .5) * 1.2]; }, .32, .75, 140]);
-  });
-  segs.push([S0, scatterPt, .5, 2.2, 260]);
-  segs.push([G0, (i, r) => heartFill[i % heartFill.length], .7, 1.3, 200]);
-  segs.push([R0, (i, r) => heartEdge[i % heartEdge.length], .5, 1.4, 90]);
-}
-function runSegs(t) {
-  while (segDone < segs.length && segs[segDone][0] <= t) {
-    const s = segs[segDone];
-    if (s[0] === G0) { // spawn at cloud words
-      const r = rng(77);
-      for (let i = 0; i < N; i++) { const w = cloud[i % cloud.length]; P.sx[i] = P.tx[i] = w.x + (r() - .5) * w.w; P.sy[i] = P.ty[i] = w.y + (r() - .5) * w.h * .6; P.t0[i] = -99; }
-    }
-    retarget(s[0], s[1], s[2], s[3], s[4]); segDone++;
-  }
-}
-function particleAlpha(t) {
-  if (t < S0) {
-    const k = Math.floor((t - H0) / HSTEP), lt = t - H0 - k * HSTEP;
-    return .9;
-  }
-  if (t < S0 + 2.4) return .9 - .65 * clamp((t - S0) / 1.2);
-  if (t < G0) return .25;
-  return .25 + .75 * clamp((t - G0) / .5);
-}
-function beat(t) { // lub-dub pulse 0..1
-  const p = (t % 1.05) / 1.05;
-  return Math.exp(-Math.pow((p - .08) / .05, 2)) + .6 * Math.exp(-Math.pow((p - .3) / .06, 2));
-}
-function drawParticles(t) {
-  const pa = particleAlpha(t);
-  let bs = 1; if (t > HB - .4) bs = 1 + .055 * beat(t) * (t > R0 + 1.5 ? .6 : 1);
-  ctx.save(); ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < N; i++) {
-    let [x, y, u] = pos(i, t);
-    const w = Math.sin(t * 1.7 + P.ph[i]) * (t > S0 && t < G0 ? 6 : 1.1);
-    x += w; y += Math.cos(t * 1.3 + P.ph[i]) * (t > S0 && t < G0 ? 6 : 1.1);
-    if (t > G0 + 1) { x = L.hcx + (x - L.hcx) * bs; y = L.hcy + (y - L.hcy) * bs; }
-    const tw = .55 + .45 * Math.sin(t * 3 + P.ph[i] * 3);
-    let a = pa * tw; if (t >= G0 && t < G0 + .5) a *= clamp((t - G0) / .5 + P.ph[i] / 12);
-    let c = PCOL[P.col[i]]; if (t > G0 && P.col[i] > 3) c = PCOL[i % 3];
-    ctx.fillStyle = 'rgba(' + c + ',' + a.toFixed(3) + ')';
-    const s = P.sz[i] * (t > G0 ? 1.15 : 1);
-    ctx.fillRect(x - s / 2, y - s / 2, s, s);
-  }
-  ctx.restore();
-}
-
-/* ---------- headline text ---------- */
-function drawHeadline(t) {
-  if (t < H0 || t > S0 + .3) return;
-  const k = Math.min(HEAD.length - 1, Math.floor((t - H0) / HSTEP)), lt = t - H0 - k * HSTEP;
-  const h = HEAD[k], m = headSize(h);
-  const inA = clamp((lt - .38) / .5), outA = 1 - clamp((lt - (HSTEP - .3)) / .28);
-  const a = Math.min(inA, outA); if (a <= 0) return;
-  const y0 = headCY() - (m.lines.length - 1) * m.lh / 2;
-  ctx.save();
-  ctx.font = fontFor(h.f, m.size); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  if (h.dir) ctx.direction = 'rtl';
-  // reveal sweep in reading direction
-  const sw = eOut(clamp((lt - .3) / .7));
-  const x0 = W * .04, x1 = W * .96, span = x1 - x0;
-  ctx.beginPath();
-  if (h.dir) ctx.rect(x1 - span * sw - 40, 0, span * sw + 80, H); else ctx.rect(x0 - 40, 0, span * sw + 80, H);
-  ctx.clip();
-  const sh = ((lt * .55) % 1.4) - .2;
-  const g = ctx.createLinearGradient(x0, 0, x1, 0);
-  const base = '#ffd9e6';
-  g.addColorStop(0, base); g.addColorStop(clamp(sh - .12), base); g.addColorStop(clamp(sh), '#ffffff'); g.addColorStop(clamp(sh + .12), base); g.addColorStop(1, base);
-  ctx.globalAlpha = a;
-  ctx.shadowColor = 'rgba(255,60,140,.95)'; ctx.shadowBlur = 28;
-  ctx.fillStyle = g;
-  m.lines.forEach((l, i) => ctx.fillText(l, W / 2, y0 + i * m.lh));
-  ctx.shadowBlur = 8; ctx.shadowColor = 'rgba(255,255,255,.6)';
-  m.lines.forEach((l, i) => ctx.fillText(l, W / 2, y0 + i * m.lh));
-  ctx.restore();
-  // language label
-  const la = Math.min(clamp((lt - .55) / .4), outA);
-  const ly = y0 + (m.lines.length - 1) * m.lh + m.size * .62 + 46;
-  ctx.save(); ctx.globalAlpha = la; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '600 15px Poppins, sans-serif';
-  ctx.fillStyle = 'rgba(255,170,205,.9)'; ctx.shadowColor = 'rgba(255,60,140,.8)'; ctx.shadowBlur = 10;
-  ctx.font = '800 26px Poppins, sans-serif'; ctx.fillText(h.lang.toUpperCase().split('').join('\u200A'), W / 2, ly);
-  if (h.tr) { ctx.font = 'italic 400 21px Poppins, sans-serif'; ctx.fillStyle = 'rgba(255,235,242,.85)'; ctx.shadowBlur = 0; ctx.fillText('“' + h.tr + '”', W / 2, ly + 34); }
-  ctx.restore();
-}
-function drawCounter(t) {
-  if (t < H0 + .2 || t > S1 + .2) return;
-  let n;
-  if (t < S0 + .6) n = Math.min(HEAD.length, Math.floor((t - H0) / HSTEP) + 1);
-  else n = Math.min(TOTAL, HEAD.length + Math.floor((t - S0 - .6) / WSTEP) + 1);
-  const a = Math.min(clamp((t - H0 - .2) / .5), 1 - clamp((t - S1) / .2));
-  ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const y = 88;
-  const txt = n + ' / ' + TOTAL;
-  ctx.font = '800 22px Poppins, sans-serif';
-  const tw = ctx.measureText(txt + '  languages').width + 36;
-  ctx.fillStyle = 'rgba(255,60,140,.16)'; ctx.strokeStyle = 'rgba(255,120,175,.55)'; ctx.lineWidth = 1.5;
-  roundRect(ctx, W / 2 - tw / 2, y - 21, tw, 42, 21); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(255,60,140,.9)'; ctx.shadowBlur = 10;
-  ctx.fillText(txt + '  languages', W / 2, y + 1);
-  ctx.restore();
-}
-function roundRect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
-
-/* ---------- language storm (word cloud) ---------- */
-let cloud = [], cloudByI = [];
-const CC = ['#ff9cc2', '#ffd1e1', '#ffffff', '#ffc27a', '#e9a6ff', '#ff6fa5', '#ffe08a', '#b9c8ff'];
-function buildCloud() {
-  const top = 118, bot = H - Math.max(92, H * .12);
-  const r0 = rng(9);
-  const sizes = CLOUD.map(c => (.86 + r0() * .38));
-  const order = CLOUD.map((c, i) => i); const rs = rng(23);
-  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rs() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
-  const gap = 16, maxW = W - 20;
-  for (let base = Math.min(38, W * .09); base >= 12; base -= .5) {
-    const items = order.map(i => { const c = CLOUD[i]; let fs = base * sizes[i] * (c.f === 'Noto Nastaliq Urdu' ? .85 : 1); ctx.font = fontFor(c.f, fs); let w = ctx.measureText(c.text).width; if (w > maxW) { fs *= maxW / w; w = maxW; } return { c, i, fs, w, h: fs * (c.f === 'Noto Nastaliq Urdu' ? 1.75 : 1.4) }; });
-    const rows = []; let row = [], rw = 0;
-    for (const it of items) { if (row.length && rw + gap + it.w > maxW) { rows.push(row); row = []; rw = 0; } rw += (row.length ? gap : 0) + it.w; row.push(it); }
-    if (row.length) rows.push(row);
-    const rh = rows.map(r => Math.max(...r.map(x => x.h)));
-    const total = rh.reduce((a, b) => a + b, 0);
-    if (total > (bot - top) * .97) continue;
-    const extra = ((bot - top) - total) / (rows.length + 1);
-    let y = top + extra; const placed = [];
-    rows.forEach((r, k) => {
-      const sumw = r.reduce((a, b) => a + b.w, 0); const sp = r.length > 1 ? Math.min(60, (maxW - sumw) / (r.length - 1)) : 0;
-      const totw = sumw + sp * (r.length - 1); let x = (W - totw) / 2;
-      for (const it of r) { const jy = (rs() - .5) * Math.min(10, extra); placed.push({ x: x + it.w / 2, y: y + rh[k] / 2 + jy, w: it.w, h: it.h, fs: it.fs, c: it.c, i: it.i, col: CC[Math.floor(rs() * CC.length)] }); x += it.w + sp; }
-      y += rh[k] + extra;
-    });
-    cloud = placed; cloud.base = base; cloudByI = placed.slice().sort((p, q) => p.i - q.i); return;
-  }
-}
-function drawCloud(t) {
-  if (t < S0 + .5 || t > G0 + .8) return;
-  const dim = t > S1 ? 1 - .8 * clamp((t - S1) / .8) : 1;
-  const fade = t > G0 ? 1 - clamp((t - G0) / .7) : 1;
-  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  let newest = -1;
-  for (const w of cloudByI) {
-    const at = S0 + .6 + w.i * WSTEP; if (t < at) continue;
-    newest = Math.max(newest, w.i);
-    const u = clamp((t - at) / .6), sc = 2.3 - 1.3 * eBack(u);
-    const bob = Math.sin(t * 1.1 + w.i) * 2.5;
-    ctx.save(); ctx.translate(w.x, w.y + bob); ctx.scale(sc, sc);
-    if (w.c.dir) ctx.direction = 'rtl';
-    ctx.font = fontFor(w.c.f, w.fs);
-    ctx.globalAlpha = clamp(u * 2.5) * dim * fade * (t - at > 2 ? .92 : 1);
-    ctx.shadowColor = w.col; ctx.shadowBlur = 6 + 22 * (1 - u);
-    ctx.fillStyle = w.col; ctx.fillText(w.c.text, 0, 0);
-    ctx.restore();
-  }
-  ctx.restore();
-  // newest language name
-  if (newest >= 0 && t < S1) {
-    const w = cloud.find(c => c.i === newest);
-    const a = 1 - clamp((t - (S1 - .4)) / .4);
-    ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = '800 26px Poppins, sans-serif'; ctx.fillStyle = '#ffd1e1'; ctx.shadowColor = 'rgba(255,60,140,.9)'; ctx.shadowBlur = 12;
-    ctx.fillText('❤ ' + w.c.lang + ' ❤', W / 2, H - Math.max(52, H * .07));
-    ctx.restore();
-  }
-}
-function drawMeaning(t) {
-  if (t < S1 || t > G0 + .6) return;
-  const a = Math.min(clamp((t - S1 - .2) / .6), 1 - clamp((t - G0) / .5));
-  const y = H * .45;
-  ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = 'rgba(10,3,12,.7)'; ctx.filter = 'blur(18px)'; ctx.fillRect(W * .04, y - 100, W * .92, 200); ctx.filter = 'none';
-  const sc = 1 + .04 * clamp((t - S1) / 2.6);
-  ctx.translate(W / 2, y); ctx.scale(sc, sc);
-  ctx.font = '800 ' + Math.min(58, W * .13) + 'px Poppins, sans-serif'; ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(255,60,140,1)'; ctx.shadowBlur = 24;
-  ctx.fillText(TOTAL + ' languages', 0, -38);
-  const a2 = clamp((t - S1 - .9) / .6); ctx.globalAlpha = a * a2;
-  ctx.font = '400 ' + Math.min(76, W * .17) + 'px "Great Vibes", cursive'; ctx.fillStyle = '#ff8fb8';
-  ctx.fillText('one meaning ❤', 0, 40);
-  ctx.restore();
-}
-
-/* ---------- heart ---------- */
-let heartFill = [], heartEdge = [];
-function hxy(a) { return [16 * Math.pow(Math.sin(a), 3), -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a))]; }
-function buildHeart() {
-  const s = L.s, cx = L.hcx, cy = L.hcy - 2.5 * s;
-  const o = document.createElement('canvas'); o.width = Math.ceil(W); o.height = Math.ceil(H); const c = o.getContext('2d');
-  c.beginPath(); for (let a = 0; a <= 6.30; a += .02) { const p = hxy(a); a ? c.lineTo(cx + p[0] * s, cy + p[1] * s) : c.moveTo(cx + p[0] * s, cy + p[1] * s); } c.closePath(); c.fillStyle = '#fff'; c.fill();
-  const d = c.getImageData(0, 0, o.width, o.height).data, pts = [];
-  for (let y = 0; y < o.height; y += 2) for (let x = 0; x < o.width; x += 2) if (d[(y * o.width + x) * 4 + 3] > 128) pts.push([x, y]);
-  const r = rng(5); for (let i = pts.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [pts[i], pts[j]] = [pts[j], pts[i]]; }
-  heartFill = pts;
-  heartEdge = []; const S = s * 1.1;
-  const cyE = L.hcy - 2.5 * S;
-  for (let i = 0; i < N; i++) { const a = r() * 6.2832, p = hxy(a), j = (r() + r() + r() - 1.5) * 4.5; const n = Math.hypot(p[0], p[1] - 2.5) || 1; heartEdge.push([cx + p[0] * S + p[0] / n * j, cyE + p[1] * S + (p[1] - 2.5) / n * j]); }
-  L.heartPath = (c2, k) => { c2.beginPath(); for (let a = 0; a <= 6.30; a += .03) { const p = hxy(a); const X = cx + p[0] * S * k, Y = cyE + p[1] * S * k; a ? c2.lineTo(X, Y) : c2.moveTo(X, Y); } c2.closePath(); };
-  L.roseY = L.hcy - s * 1.2; L.roseR = Math.min(W * .25, s * 7.6);
-}
-function drawHeartGlow(t) {
-  if (t < G0 + .8) return;
-  const a = clamp((t - G0 - .8) / 1.0);
-  const bs = 1 + .055 * beat(t) * (t > R0 + 1.5 ? .6 : 1);
-  ctx.save(); ctx.globalCompositeOperation = 'lighter';
-  ctx.translate(L.hcx, L.hcy); ctx.scale(bs, bs); ctx.translate(-L.hcx, -L.hcy);
-  const inner = 1 - clamp((t - R0) / 1.2);
-  // inner glow when filled
-  if (inner > 0) {
-    const q = ctx.createRadialGradient(L.hcx, L.hcy, 0, L.hcx, L.hcy, L.hw * .6);
-    q.addColorStop(0, 'rgba(255,70,140,' + (.45 * a * inner).toFixed(3) + ')'); q.addColorStop(1, 'rgba(255,70,140,0)');
-    ctx.fillStyle = q; ctx.fillRect(0, 0, W, H);
-  }
-  if (t > R0 + .6) { // glowing outline
-    const oa = clamp((t - R0 - .6) / 1.2);
-    L.heartPath(ctx, 1);
-    ctx.strokeStyle = 'rgba(255,90,150,' + (.55 * oa).toFixed(3) + ')'; ctx.lineWidth = 3; ctx.shadowColor = 'rgba(255,40,120,1)'; ctx.shadowBlur = 26; ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,220,235,' + (.6 * oa).toFixed(3) + ')'; ctx.lineWidth = 1.2; ctx.shadowBlur = 8; ctx.stroke();
-  }
-  ctx.restore();
-}
-function drawHeartName(t) {
-  if (t < HB - .6 || t > R0 + 1.2) return;
-  const a = Math.min(clamp((t - HB + .6) / .9), 1 - clamp((t - R0 - .3) / .8));
-  const bs = 1 + .07 * beat(t);
-  let fs = Math.min(80, L.hw * .2);
-  ctx.save(); ctx.font = '400 ' + fs + 'px "Great Vibes", cursive';
-  const tw = ctx.measureText(NAME).width; if (tw > L.hw * .58) { fs *= L.hw * .58 / tw; ctx.font = '400 ' + fs + 'px "Great Vibes", cursive'; }
-  ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.translate(L.hcx, L.hcy - L.s * .6); ctx.scale(bs, bs);
-  ctx.shadowColor = 'rgba(120,0,40,.9)'; ctx.shadowBlur = 18; ctx.fillStyle = '#fff';
-  ctx.fillText(NAME, 0, 0);
-  ctx.shadowBlur = 0; ctx.font = '600 22px Poppins, sans-serif'; ctx.fillStyle = 'rgba(255,240,245,.95)';
-  ctx.fillText('you are my', 0, -fs * .78);
-  ctx.restore();
-}
-
-/* ---------- rose ---------- */
-function petalShape(c, len, wid, cup) {
-  c.beginPath(); c.moveTo(0, 0);
-  c.bezierCurveTo(wid * .9, -len * .12, wid * 1.08, -len * .78, wid * .25, -len * .98);
-  c.quadraticCurveTo(0, -len * (1.04 - cup * .1), -wid * .25, -len * .98);
-  c.bezierCurveTo(-wid * 1.08, -len * .78, -wid * .9, -len * .12, 0, 0); c.closePath();
-}
-const LAYERS = [ // outer -> inner : count, radius frac, width frac, colours
-  [7, 1.00, .78, '#6d0016', '#c3122f', '#ff5a7a'],
-  [6, .86, .80, '#74001a', '#cf1838', '#ff6b88'],
-  [6, .72, .82, '#7a001c', '#d81d3e', '#ff7c95'],
-  [5, .58, .86, '#80001e', '#e02545', '#ff8ca2'],
-  [5, .45, .90, '#860020', '#e52b4b', '#ff9aad'],
-  [4, .33, .95, '#7d001d', '#dc2443', '#ff9db0'],
-];
-function drawRoseHead(c, cx, cy, R, b, t) {
-  c.save(); c.translate(cx, cy); c.scale(1, .92);
-  const ha = clamp(b * 1.4);
-  const q = c.createRadialGradient(0, 0, R * .2, 0, 0, R * 2.2);
-  q.addColorStop(0, 'rgba(255,30,80,' + (.45 * ha).toFixed(3) + ')'); q.addColorStop(1, 'rgba(255,30,80,0)');
-  c.fillStyle = q; c.fillRect(-R * 2.3, -R * 2.3, R * 4.6, R * 4.6);
-  const r = rng(314);
-  // sepals
-  const sp = clamp(b * 3);
-  for (let k = 0; k < 5; k++) {
-    c.save(); c.rotate(k * 1.2566 + .3); const g = c.createLinearGradient(0, 0, 0, -R * 1.1);
-    g.addColorStop(0, '#0c3f17'); g.addColorStop(1, '#3d9a49'); c.fillStyle = g;
-    petalShape(c, R * 1.12 * sp, R * .2, 0); c.fill(); c.restore();
-  }
-  // outer broad petals (two rings)
-  const outer = [[5, 1.0, 1.05, .0], [5, .9, 1.0, .63]];
-  outer.forEach((o, l) => {
-    const p = clamp((b - .45 - (1 - l) * .1) / .45); if (p <= 0) return;
-    const e = eOut(p);
-    for (let k = 0; k < o[0]; k++) {
-      const jr = .92 + r() * .16, ja = (r() - .5) * .25;
-      const len = R * o[1] * jr * (.5 + .5 * e), wid = len * o[2] * (.7 + .3 * e);
-      c.save(); c.rotate(o[3] + k * 6.2832 / o[0] + ja + (1 - e) * .4);
-      c.shadowColor = 'rgba(15,0,4,.7)'; c.shadowBlur = 10;
-      const g = c.createRadialGradient(0, 0, len * .1, 0, -len * .3, len * 1.05);
-      g.addColorStop(0, '#2a0006'); g.addColorStop(.45, '#7d0619'); g.addColorStop(.8, '#b80f2c'); g.addColorStop(1, '#e8304f');
-      c.fillStyle = g; petalShape(c, len, wid, .3); c.fill();
-      c.shadowBlur = 0;
-      const sg = c.createLinearGradient(-wid, 0, wid, 0); sg.addColorStop(0, 'rgba(0,0,0,.35)'); sg.addColorStop(.5, 'rgba(0,0,0,0)'); sg.addColorStop(1, 'rgba(255,120,140,.10)');
-      c.fillStyle = sg; c.fill();
-      c.beginPath(); c.moveTo(-wid * .7, -len * .84); c.quadraticCurveTo(0, -len * 1.05, wid * .7, -len * .84);
-      c.strokeStyle = 'rgba(255,120,140,' + (.45 * e).toFixed(3) + ')'; c.lineWidth = 1.4; c.stroke();
-      c.restore();
-    }
-  });
-  // cupped crescents spiralling inwards
-  const NC = 15;
-  for (let k = 0; k < NC; k++) {
-    const f = k / (NC - 1);                       // 0 outer -> 1 inner
-    const p = clamp((b - (1 - f) * .45) / .4); if (p <= 0) continue;
-    const e = eOut(p);
-    const rr = R * (.74 - .66 * f) * (.75 + .25 * e);
-    const a0 = k * 2.399 + .4, span = 2.3 + .9 * (1 - f);
-    c.save(); c.rotate(a0);
-    c.shadowColor = 'rgba(15,0,4,.75)'; c.shadowBlur = 7;
-    const g = c.createRadialGradient(0, 0, rr * .35, 0, 0, rr * 1.02);
-    g.addColorStop(0, '#330008'); g.addColorStop(.62, '#8e0a20'); g.addColorStop(.9, '#d01d3c'); g.addColorStop(1, '#f2506c');
-    c.beginPath(); c.arc(0, 0, rr, -span / 2, span / 2);
-    const off = rr * .22; c.arc(-off, 0, rr * .8, span / 2 * .92, -span / 2 * .92, true); c.closePath();
-    c.fillStyle = g; c.fill(); c.shadowBlur = 0;
-    c.beginPath(); c.arc(0, 0, rr * .985, -span / 2 + .12, span / 2 - .12);
-    c.strokeStyle = 'rgba(255,140,160,' + (.55 * e).toFixed(3) + ')'; c.lineWidth = 1.3; c.stroke();
-    c.restore();
-  }
-  const pb = clamp(b / .4);
-  c.beginPath(); c.arc(0, 0, R * .07 * pb, 0, 6.283); c.fillStyle = '#2a0006'; c.fill();
-  c.restore();
-}
-function stemPt(u) { // u: 0 at head -> 1 at bottom
-  const x0 = L.hcx, y0 = L.roseY + L.roseR * .5, x3 = L.hcx - W * .06, y3 = H + 10;
-  const x1 = x0 + W * .1, y1 = y0 + (y3 - y0) * .35, x2 = x3 - W * .12, y2 = y0 + (y3 - y0) * .7;
-  const m = 1 - u; return [m * m * m * x0 + 3 * m * m * u * x1 + 3 * m * u * u * x2 + u * u * u * x3, m * m * m * y0 + 3 * m * m * u * y1 + 3 * m * u * u * y2 + u * u * u * y3];
-}
-function leaf(c, x, y, ang, sz, p) {
-  if (p <= 0) return; c.save(); c.translate(x, y); c.rotate(ang); c.scale(eOut(p), eOut(p));
-  const g = c.createLinearGradient(0, 0, sz, 0); g.addColorStop(0, '#0e4a1b'); g.addColorStop(1, '#4cb35a');
-  c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(sz * .3, -sz * .42, sz * .8, -sz * .32, sz, 0); c.bezierCurveTo(sz * .8, sz * .3, sz * .3, sz * .36, 0, 0); c.closePath();
-  c.fillStyle = g; c.fill(); c.strokeStyle = 'rgba(10,40,15,.6)'; c.lineWidth = 1; c.stroke();
-  c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(sz * .5, -sz * .04, sz * .95, 0); c.strokeStyle = 'rgba(190,255,190,.45)'; c.lineWidth = 1.2; c.stroke();
-  for (let k = 1; k < 5; k++) { const xx = sz * k / 5.5; c.beginPath(); c.moveTo(xx, -sz * .01); c.lineTo(xx + sz * .1, -sz * .14); c.moveTo(xx, sz * .01); c.lineTo(xx + sz * .1, sz * .13); c.strokeStyle = 'rgba(190,255,190,.25)'; c.stroke(); }
-  c.restore();
-}
-function drawRose(t) {
-  if (t < R0 + .3) return;
-  const g = eOut(clamp((t - R0 - .3) / 1.6));      // stem growth
-  const b = clamp((t - R0 - 1.5) / 3.4);             // bloom
-  // stem from bottom up
-  ctx.save();
-  ctx.beginPath(); let first = true;
-  for (let u = 1; u >= 1 - g; u -= .01) { const p = stemPt(u); first ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1]); first = false; }
-  const sg = ctx.createLinearGradient(0, L.roseY, 0, H); sg.addColorStop(0, '#2f8a3c'); sg.addColorStop(1, '#0d3d17');
-  ctx.strokeStyle = sg; ctx.lineWidth = Math.max(6, W * .017); ctx.lineCap = 'round'; ctx.shadowColor = 'rgba(80,255,120,.25)'; ctx.shadowBlur = 8; ctx.stroke();
-  ctx.shadowBlur = 0;
-  for (const tu of [.3, .5, .72, .86]) { if (1 - tu > g) continue; const p = stemPt(tu), s = tu * 10 % 2 > 1 ? 1 : -1; ctx.beginPath(); ctx.moveTo(p[0] + s * 3, p[1] - 3); ctx.lineTo(p[0] + s * 11, p[1] - 9); ctx.lineTo(p[0] + s * 3, p[1] + 4); ctx.fillStyle = '#2a7a35'; ctx.fill(); }
-  const lp1 = clamp((t - R0 - 1.2) / 1.0), lp2 = clamp((t - R0 - 1.0) / 1.0);
-  const sw = Math.sin(t * 1.2) * .05;
-  let p = stemPt(.2); leaf(ctx, p[0], p[1], -2.6 + sw, W * .17, lp1);
-  p = stemPt(.32); leaf(ctx, p[0], p[1], -.5 - sw, W * .19, lp2);
-  ctx.restore();
-  if (g > .85) drawRoseHead(ctx, L.hcx, L.roseY, L.roseR * (1 + .015 * Math.sin(t * 1.6)), b, t);
-}
-const PET = []; (function () { const r = rng(42); for (let i = 0; i < 22; i++) PET.push({ x: r(), s: 9 + r() * 9, v: 45 + r() * 45, o: r() * 30, sw: 10 + r() * 30, f: .5 + r() * 1.2, rot: r() * 6, rv: (r() - .5) * 3 }); })();
-function drawFalling(t) {
-  if (t < R0 + 3) return;
-  const a0 = clamp((t - R0 - 3) / 1.5);
-  ctx.save();
-  for (const p of PET) {
-    const tt = t - R0 - 3; if (tt < p.o * .12) continue;
-    const life = (H + 60) / p.v; const k = ((tt - p.o * .12) % life) / life;
-    const y = -30 + k * (H + 60), x = p.x * W + Math.sin(t * p.f + p.o) * p.sw;
-    ctx.save(); ctx.translate(x, y); ctx.rotate(p.rot + t * p.rv); { const cs = Math.cos(t * p.f * 2 + p.o); ctx.scale(Math.sign(cs || 1) * Math.max(.3, Math.abs(cs)), 1); }
-    const g = ctx.createLinearGradient(0, 0, 0, -p.s); g.addColorStop(0, '#9b0a26'); g.addColorStop(1, '#ff5d7e');
-    ctx.globalAlpha = .85 * a0; ctx.fillStyle = g; petalShape(ctx, p.s, p.s * .7, 0); ctx.fill(); ctx.restore();
-  }
-  ctx.restore();
-}
-function drawSparkles(t) {
-  if (t < R0 + 2) return; const a0 = clamp((t - R0 - 2) / 1.5);
-  const r = rng(99); ctx.save(); ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < 30; i++) {
-    const ang = r() * 6.28, rad = L.roseR * (1.1 + r() * 1.6), ph = r() * 6.28;
-    const x = L.hcx + Math.cos(ang + t * .15) * rad, y = L.roseY + Math.sin(ang + t * .15) * rad * .85;
-    const tw = Math.pow(.5 + .5 * Math.sin(t * 2.4 + ph), 3) * a0, s = 1.5 + tw * 3;
-    ctx.fillStyle = 'rgba(255,230,180,' + tw.toFixed(3) + ')';
-    ctx.beginPath(); ctx.moveTo(x, y - s * 2); ctx.lineTo(x + s * .5, y); ctx.lineTo(x, y + s * 2); ctx.lineTo(x - s * .5, y); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(x - s * 2, y); ctx.lineTo(x, y + s * .5); ctx.lineTo(x + s * 2, y); ctx.lineTo(x, y - s * .5); ctx.closePath(); ctx.fill();
-  }
-  ctx.restore();
-}
-function drawFinalLine(t) {
-  if (t < FL) return;
-  const a = clamp((t - FL) / 1.1);
-  const y = L.lineY;
-  ctx.save(); ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = 'rgba(12,3,10,.45)'; ctx.filter = 'blur(14px)'; ctx.fillRect(W * .08, y - 6, W * .84, L.lineH * .9); ctx.filter = 'none';
-  let fs = Math.min(52, W * .12); ctx.font = '400 ' + fs + 'px "Great Vibes", cursive';
-  const tw = ctx.measureText(NAME + ',').width; if (tw > W * .86) { fs *= W * .86 / tw; ctx.font = '400 ' + fs + 'px "Great Vibes", cursive'; }
-  ctx.fillStyle = '#ff9cc0'; ctx.shadowColor = 'rgba(255,50,130,.9)'; ctx.shadowBlur = 16;
-  ctx.fillText(NAME + ',', W / 2, y + fs * .5);
-  const a2 = clamp((t - FL - .5) / 1.0); ctx.globalAlpha = a * a2;
-  const bs = Math.min(24, W * .062);
-  ctx.font = '600 ' + bs + 'px Poppins, sans-serif'; ctx.fillStyle = '#fff'; ctx.shadowBlur = 10;
-  ctx.fillText('in every language,', W / 2, y + fs + bs * .55);
-  ctx.fillText('my answer is you 🌹', W / 2, y + fs + bs * 1.85);
-  ctx.restore();
-}
-
 /* ---------- main loop ---------- */
 let T0 = null, started = false, introT = now();
 function frame() {
@@ -536,17 +449,11 @@ function frame() {
   drawBG(tn);
   if (started) {
     const t = tn - T0;
-    runSegs(t);
-    drawCloud(t);
     drawHeartGlow(t);
-    drawFalling(t);
-    drawRose(t);
-    drawParticles(t);
-    drawSparkles(t);
-    drawHeadline(t);
+    drawRoseGlow(t);
+    drawWords(t);
+    drawCaption(t);
     drawHeartName(t);
-    drawMeaning(t);
-    drawCounter(t);
     drawFinalLine(t);
     ui(t);
     window.__t = t;
@@ -569,14 +476,14 @@ function ui(t) {
   panel.style.pointerEvents = pp > .9 ? 'auto' : 'none';
 }
 function begin() {
-  if (started) return; started = true; T0 = now(); segDone = 0; buildSegs();
+  if (started) return; started = true; T0 = now();
   if (!DEMO) Music.start();
 }
 btn.addEventListener('click', begin);
-$('#replay').addEventListener('click', () => { T0 = now(); segDone = 0; buildSegs(); });
+$('#replay').addEventListener('click', () => { T0 = now(); });
 $('#share').addEventListener('click', () => {
   const url = location.origin + location.pathname + '?name=' + encodeURIComponent(NAME);
-  const msg = 'I said it in ' + TOTAL + ' languages… open this, ' + NAME + ' 🌹❤️\n' + url;
+  const msg = 'I made you a rose out of "I love you" in ' + TOTAL + ' languages… open it, ' + NAME + ' 🌹❤️\n' + url;
   window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent(msg), '_blank');
 });
 /* make your own */
@@ -585,7 +492,7 @@ $('#mk').addEventListener('click', () => { modal.classList.add('on'); });
 $('#mkclose').addEventListener('click', () => modal.classList.remove('on'));
 document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => { inp.value = c.textContent; }));
 function mkUrl() { const n = (inp.value || '').trim().slice(0, 22) || 'my love'; return location.origin + location.pathname + '?name=' + encodeURIComponent(n); }
-$('#mkwa').addEventListener('click', () => { const u = mkUrl(); out.textContent = u; window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent('I said it in ' + TOTAL + ' languages… open this 🌹❤️\n' + u), '_blank'); });
+$('#mkwa').addEventListener('click', () => { const u = mkUrl(); out.textContent = u; window.open('https://api.whatsapp.com/send?text=' + encodeURIComponent('I made you a rose out of "I love you" in ' + TOTAL + ' languages 🌹❤️\n' + u), '_blank'); });
 $('#mkcopy').addEventListener('click', () => { const u = mkUrl(); out.textContent = u; const done = () => { $('#mkcopy').textContent = 'Copied ✓'; };
   const fb = () => { try { const ta = document.createElement('textarea'); ta.value = u; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); } catch (e) { } };
   try { navigator.clipboard.writeText(u).then(done, fb); } catch (e) { fb(); } });
@@ -642,14 +549,14 @@ async function fontsReady() {
   await Promise.race([Promise.allSettled(jobs), new Promise(r => setTimeout(r, 6000))]);
 }
 let lastW = 0, lastH = 0;
-window.addEventListener('resize', () => { if (Math.abs(window.innerWidth - lastW) > 2 || Math.abs(window.innerHeight - lastH) > 60) { lastW = window.innerWidth; lastH = window.innerHeight; layout(); if (started) { const t = now() - T0; buildSegs(); segDone = 0; } } });
+window.addEventListener('resize', () => { if (Math.abs(window.innerWidth - lastW) > 2 || Math.abs(window.innerHeight - lastH) > 60) { lastW = window.innerWidth; lastH = window.innerHeight; layout(); } });
 (async function boot() {
   $('#who').textContent = NAME;
   await fontsReady();
   lastW = window.innerWidth; lastH = window.innerHeight;
-  layout(); buildSegs();
+  layout();
   requestAnimationFrame(frame);
-  window.__api = { phase: () => started ? (window.__t < S0 ? 'head' : window.__t < S1 ? 'storm' : window.__t < G0 ? 'meaning' : window.__t < R0 ? 'heart' : window.__t < PN ? 'rose' : 'final') : 'intro', T: { H0, S0, S1, G0, HB, R0, FL, PN, DONE } };
+  window.__api = { phase: () => started ? (window.__t < T1 ? 'flow' : window.__t < T2 ? 'heart' : window.__t < PN ? 'rose' : 'final') : 'intro', T: { FL0, T1, HB, T2, RB, FL, PN, DONE }, counts: () => [FLOW.length, HEART.length, ROSE.length, TOK.length] };
   window.__ready = true;
   if (DEMO) setTimeout(() => { btn.classList.add('tap'); setTimeout(begin, 350); }, 2000);
 })();
