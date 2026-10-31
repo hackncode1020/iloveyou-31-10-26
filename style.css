@@ -19,7 +19,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0b0410;color:#fff;f
 #make .card{width:100%;max-width:420px;background:linear-gradient(160deg,#2a0a24,#160514);border:1.5px solid rgba(255,140,190,.5);border-radius:26px;padding:22px 18px;display:flex;flex-direction:column;gap:12px;box-shadow:0 0 40px rgba(255,60,140,.35)}
 .mt{font-size:26px;font-weight:800;text-align:center}
 #petname{height:60px;border-radius:16px;border:1.5px solid rgba(255,140,190,.6);background:rgba(0,0,0,.35);color:#fff;font:600 22px Poppins,sans-serif;padding:0 16px;outline:none}
-.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
-.chip{font-size:20px;padding:6px 14px;border-radius:999px;background:rgba(255,60,140,.18);border:1px solid rgba(255,140,190,.5);cursor:pointer}
 #mklink{font-size:16px;color:#ffc6dc;word-break:break-all;text-align:center;min-height:0}
 @media (max-height:680px){#panel{gap:9px;padding-top:10px}#panel button{height:52px}#panel .big{height:56px}}
+
+#make .opt{font-size:20px;line-height:1.35;text-align:center;color:#ffc2d8}
